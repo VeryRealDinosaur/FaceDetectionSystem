@@ -5,7 +5,10 @@ import os
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-
+from albumentations import (
+    HorizontalFlip, ShiftScaleRotate, GaussianBlur, CLAHE, RandomBrightnessContrast, Compose
+)
+from albumentations.core.composition import OneOf
 
 class CustomEmotionModel:
     def __init__(self, emotions=['happy', 'sad', 'angry', 'surprised', 'neutral']):
@@ -36,7 +39,7 @@ class CustomEmotionModel:
 
     def prepare_dataset(self, dataset_path, visualize=True):
         """
-        Prepare emotion dataset with face detection and cropping
+        Prepare emotion dataset with face detection and data augmentation
 
         Args:
             dataset_path (str): Root directory with emotion subdirectories
@@ -47,6 +50,17 @@ class CustomEmotionModel:
         """
         # Load Haar Cascade for face detection
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+        # Define augmentation pipeline using Albumentations
+        augmentation = Compose([
+            HorizontalFlip(p=0.5),  # 50% chance to flip horizontally
+            ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=10, p=0.5),
+            GaussianBlur(blur_limit=(3, 5), p=0.3),  # Slight blurring
+            OneOf([
+                CLAHE(clip_limit=2),
+                RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5)
+            ], p=0.5)  # Enhance contrast/brightness
+        ])
 
         X = []
         y = []
@@ -75,19 +89,40 @@ class CustomEmotionModel:
                         # Resize to 48x48
                         face = cv2.resize(face, (48, 48))
 
-                        # Normalize pixel values
-                        face = face / 255.0
-
-                        # Optional visualization
-                        if visualize and len(X) < 5:
-                            plt.figure(figsize=(5, 5))
-                            plt.imshow(face, cmap='gray')
-                            plt.title(f"{emotion} Emotion - Face Detection {image_file}" )
-                            plt.axis('off')
-                            plt.show()
-
-                        X.append(face)
+                        # Original face
+                        X.append(face / 255.0)
                         y.append(emotion_idx)
+
+                        # Generate augmented images (5 per original image)
+                        for _ in range(5):
+                            # Augment the face using Albumentations
+                            augmented_face = augmentation(image=face)['image']
+
+                            # Normalize augmented face
+                            augmented_face = augmented_face / 255.0
+
+                            # Optional visualization
+                            if visualize and len(X) < 15:
+                                plt.figure(figsize=(10, 5))
+
+                                # Original face
+                                plt.subplot(1, 2, 1)
+                                plt.imshow(face, cmap='gray')
+                                plt.title(f"Original: {image_file}")
+                                plt.axis('off')
+
+                                # Augmented face
+                                plt.subplot(1, 2, 2)
+                                plt.imshow(augmented_face, cmap='gray')
+                                plt.title(f"{emotion} - Augmented")
+                                plt.axis('off')
+
+                                plt.tight_layout()
+                                plt.show()
+
+                            # Add augmented image
+                            X.append(augmented_face)
+                            y.append(emotion_idx)
 
                 except Exception as e:
                     print(f"Error processing {image_path}: {e}")
